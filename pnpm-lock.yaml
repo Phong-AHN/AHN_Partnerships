@@ -41,12 +41,18 @@ importers:
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@partners/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@partners/config':
         specifier: workspace:*
         version: link:../../packages/config
       '@partners/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@partners/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@partners/observability':
         specifier: workspace:*
         version: link:../../packages/observability
@@ -87,6 +93,21 @@ importers:
       tailwindcss:
         specifier: ^4.1.16
         version: 4.3.3
+
+  packages/auth:
+    dependencies:
+      '@partners/config':
+        specifier: workspace:*
+        version: link:../config
+      '@partners/core':
+        specifier: workspace:*
+        version: link:../core
+      '@partners/db':
+        specifier: workspace:*
+        version: link:../db
+      '@partners/rbac':
+        specifier: workspace:*
+        version: link:../rbac
 
   packages/config:
     dependencies:

@@ -1,7 +1,8 @@
-export default function IndexPage() {
-  return (
-    <main id="main" className="grid min-h-dvh place-items-center px-6">
-      <p className="text-muted text-sm">AHN Partnerships</p>
-    </main>
-  );
+import { redirect } from 'next/navigation';
+import { landingPathFor } from '@partners/rbac';
+import { getPrincipal } from '@/server/session';
+
+export default async function IndexPage() {
+  const principal = await getPrincipal();
+  redirect(principal ? landingPathFor(principal) : '/sign-in');
 }

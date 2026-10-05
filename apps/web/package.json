@@ -11,8 +11,10 @@
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
+    "@partners/auth": "workspace:*",
     "@partners/config": "workspace:*",
     "@partners/core": "workspace:*",
+    "@partners/db": "workspace:*",
     "@partners/observability": "workspace:*",
     "@partners/rbac": "workspace:*",
     "@partners/ui": "workspace:*",

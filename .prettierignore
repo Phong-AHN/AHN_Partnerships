@@ -3,3 +3,4 @@ node_modules
 dist
 pnpm-lock.yaml
 packages/db/prisma/migrations
+apps/web/next-env.d.ts
