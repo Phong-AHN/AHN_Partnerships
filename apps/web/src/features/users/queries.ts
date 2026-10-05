@@ -14,3 +14,18 @@ export async function listActiveUsers(): Promise<UserOption[]> {
     orderBy: { name: 'asc' },
   });
 }
+
+export async function listUsers() {
+  return db.user.findMany({
+    orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      isActive: true,
+      lastLoginAt: true,
+      createdAt: true,
+    },
+  });
+}

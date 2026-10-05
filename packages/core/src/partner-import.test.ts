@@ -77,18 +77,16 @@ describe('parsePartnerCsv', () => {
         HEADER,
         ',NOT_A_SECTOR,,XX,,,maybe,abc,',
         'Steller,CORPORATE_CONSUMER_MEDIA,,CM,,PROPOSAL_SENT,0,,',
-        'Comcast,TECH_COMMERCE_SMB,,CM,,WON,0,,',
       ].join('\n'),
     );
     expect(rows).toEqual([]);
-    expect(issues.map((issue) => issue.line)).toEqual([2, 3, 4]);
+    expect(issues.map((issue) => issue.line)).toEqual([2, 3]);
     expect(issues[0]?.message).toMatch(/name is empty/);
     expect(issues[0]?.message).toMatch(/sector/);
     expect(issues[0]?.message).toMatch(/ask_type/);
     expect(issues[0]?.message).toMatch(/existing/);
     expect(issues[0]?.message).toMatch(/amount_usd/);
     expect(issues[1]?.message).toMatch(/needs a tier/);
-    expect(issues[2]?.message).toMatch(/cannot be imported/);
   });
 
   it('refuses the same partner twice in one file', () => {

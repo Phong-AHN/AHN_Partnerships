@@ -14,7 +14,7 @@ import {
 } from './enums';
 import { ASK_TYPE_LABEL } from './labels';
 import { dollarsToMinor } from './money';
-import { DEFAULT_YEAR, isClosedStage, needsTier } from './pipeline';
+import { DEFAULT_YEAR, needsTier } from './pipeline';
 
 /**
  * The partner CSV format - the columns of the plan's Appendix A, plus a few
@@ -183,11 +183,6 @@ export function parsePartnerCsv(text: string): ParsedPartnerCsv {
     const rawStage = get('stage');
     const stage = rawStage ? oneOf(DEAL_STAGES, rawStage) : 'PROSPECT';
     if (!stage) problems.push(`stage "${rawStage}" is not one of ${DEAL_STAGES.join(', ')}`);
-    if (stage && isClosedStage(stage)) {
-      problems.push(
-        `stage ${stage} cannot be imported - close deals in the app so WON creates the membership`,
-      );
-    }
 
     const amountMinor = dollarsToMinor(get('amount_usd'));
     if (amountMinor !== null && Number.isNaN(amountMinor)) {
