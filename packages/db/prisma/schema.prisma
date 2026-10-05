@@ -1,0 +1,343 @@
+// AHN Partnerships - pipeline for AHN/AHNF corporate memberships and
+// partnerships. A partner is a company; a deal is one ask of that partner for
+// one year; a membership is a won corporate-membership deal.
+//
+// Conventions carried over from Mercator:
+//   - UUIDv7 primary keys, so ids sort by creation time
+//   - Timestamptz(3) for instants, Date for calendar days, all UTC
+//   - money as integer minor units (cents), never a float
+//   - check constraints live in the migration and are load-bearing - but the
+//     server action checks them first, so a user never sees a 23514
+
+// `binaryTargets` includes Vercel's serverless runtime alongside "native"
+// (whatever machine runs `prisma generate`). Without it the deployed function
+// fails with "Prisma Client could not locate the Query Engine for runtime
+// rhel-openssl-3.0.x" - confirmed live on Mercator.
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums - kept in step with packages/core/src/enums.ts (checked at typecheck)
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum Entity {
+  AHN
+  AHNF
+  BOTH
+}
+
+enum Sector {
+  BANKING_FINANCIAL
+  TECH_COMMERCE_SMB
+  PROFESSIONAL_SERVICES
+  CORPORATE_CONSUMER_MEDIA
+  GLOBAL_GOVERNMENT_ECOSYSTEM
+}
+
+enum Priority {
+  IN_MOTION
+  NEXT_OUTREACH
+  OPPORTUNITY
+  BACKLOG
+}
+
+enum AskType {
+  CORPORATE_MEMBERSHIP
+  REFERRAL_REVENUE
+  STRATEGIC_COMMUNITY
+}
+
+enum DealStage {
+  PROSPECT
+  CONTACTED
+  IN_DISCUSSION
+  PROPOSAL_SENT
+  NEGOTIATING
+  WON
+  LOST
+  ON_HOLD
+}
+
+enum MembershipStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum ActivityType {
+  NOTE
+  EMAIL
+  CALL
+  MEETING
+  STAGE_CHANGE
+  DEAL_CREATED
+  MEMBERSHIP_STARTED
+}
+
+enum PasswordTokenPurpose {
+  INVITE
+  RESET
+}
+
+// ---------------------------------------------------------------------------
+// People and sign-in (shape copied from Mercator so @partners/auth runs as-is)
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         UserRole  @default(MEMBER)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
+
+  sessions       Session[]
+  passwordTokens PasswordToken[]
+  ownedPartners  Partner[]       @relation("PartnerOwner")
+  ownedDeals     Deal[]          @relation("DealOwner")
+  activities     Activity[]
+  auditLogs      AuditLog[]
+}
+
+model Session {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  userId     String    @db.Uuid
+  // Stored hashed: a database dump cannot be replayed as a login.
+  tokenHash  String    @unique
+  expiresAt  DateTime  @db.Timestamptz(3)
+  revokedAt  DateTime? @db.Timestamptz(3)
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  lastSeenAt DateTime  @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// A first-time invite and a password reset walk the same one-time, hashed,
+/// short-lived link. There is no email sending in v1: an admin copies the link
+/// from /settings/users and sends it themselves.
+model PasswordToken {
+  id        String               @id @default(uuid(7)) @db.Uuid
+  userId    String               @db.Uuid
+  purpose   PasswordTokenPurpose
+  tokenHash String               @unique
+  expiresAt DateTime             @db.Timestamptz(3)
+  usedAt    DateTime?            @db.Timestamptz(3)
+  createdAt DateTime             @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Sign-in throttling keyed by source IP, not by account - an account-keyed
+/// lockout lets anyone lock a real person out by failing their password.
+model SignInThrottle {
+  ip             String   @id
+  failedAttempts Int      @default(0)
+  lastAttemptAt  DateTime @db.Timestamptz(3)
+
+  @@index([lastAttemptAt])
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline
+// ---------------------------------------------------------------------------
+
+/// A membership tier. The price is fixed: when it changes, create next year's
+/// tier or edit this one - deals already priced keep the price they snapshot
+/// into `Deal.amountMinor`.
+model MembershipTier {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  code       String   @unique // "PLATINUM_2027"
+  name       String // "Platinum"
+  year       Int // 2027
+  priceMinor Int // 5000000 = $50,000
+  benefits   String[]
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+
+  deals       Deal[]
+  memberships Membership[]
+
+  @@unique([name, year])
+}
+
+model Partner {
+  id                   String    @id @default(uuid(7)) @db.Uuid
+  name                 String    @unique
+  website              String?
+  sector               Sector
+  priority             Priority  @default(BACKLOG)
+  /// "existing AHN relationship" in Bryan's list.
+  existingRelationship Boolean   @default(false)
+  /// The opportunity in a sentence, like each line of the original email.
+  summary              String?
+  /// The AHN person responsible for the relationship.
+  ownerId              String?   @db.Uuid
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
+  archivedAt           DateTime? @db.Timestamptz(3)
+
+  owner       User?            @relation("PartnerOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  contacts    PartnerContact[]
+  deals       Deal[]
+  memberships Membership[]
+  activities  Activity[]
+
+  @@index([sector])
+  @@index([priority])
+}
+
+model PartnerContact {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  partnerId String   @db.Uuid
+  name      String
+  title     String?
+  email     String?
+  phone     String?
+  linkedin  String?
+  isPrimary Boolean  @default(false)
+  notes     String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([partnerId])
+}
+
+/// One concrete ask of one partner for one year. A partner can have several
+/// (ADP: an annual sponsorship deal and a referral deal).
+model Deal {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  partnerId         String    @db.Uuid
+  title             String // "2027 Corporate Membership"
+  year              Int       @default(2027)
+  entity            Entity    @default(AHN)
+  askType           AskType
+  /// Required for CORPORATE_MEMBERSHIP from PROPOSAL_SENT onwards.
+  tierId            String?   @db.Uuid
+  /// Membership: the tier's price snapshotted when the tier was assigned, so a
+  /// later price change never rewrites history. Other asks: an estimate.
+  amountMinor       Int?
+  stage             DealStage @default(PROSPECT)
+  stageChangedAt    DateTime  @default(now()) @db.Timestamptz(3)
+  expectedCloseDate DateTime? @db.Date
+  closedAt          DateTime? @db.Timestamptz(3)
+  lostReason        String?
+  nextAction        String?
+  nextActionDue     DateTime? @db.Date
+  ownerId           String?   @db.Uuid
+  proposalUrl       String?
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
+
+  partner    Partner         @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  tier       MembershipTier? @relation(fields: [tierId], references: [id])
+  owner      User?           @relation("DealOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  membership Membership?
+  activities Activity[]
+
+  @@index([partnerId])
+  @@index([stage])
+  @@index([year, stage])
+  @@index([nextActionDue])
+}
+
+/// A signed corporate member. Created in the same transaction that moves a
+/// CORPORATE_MEMBERSHIP deal to WON. EXPIRED is derived on read from `endDate`;
+/// the stored status only ever moves ACTIVE -> CANCELLED by hand.
+model Membership {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  partnerId   String           @db.Uuid
+  tierId      String           @db.Uuid
+  dealId      String?          @unique @db.Uuid
+  startDate   DateTime         @db.Date
+  endDate     DateTime         @db.Date
+  amountMinor Int // snapshotted from the deal
+  status      MembershipStatus @default(ACTIVE)
+  paidAt      DateTime?        @db.Timestamptz(3)
+  cancelledAt DateTime?        @db.Timestamptz(3)
+  notes       String?
+  createdAt   DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime         @updatedAt @db.Timestamptz(3)
+
+  partner Partner        @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  tier    MembershipTier @relation(fields: [tierId], references: [id])
+  deal    Deal?          @relation(fields: [dealId], references: [id], onDelete: SetNull)
+
+  @@index([partnerId])
+  @@index([endDate])
+  @@index([status])
+}
+
+model Activity {
+  id         String       @id @default(uuid(7)) @db.Uuid
+  partnerId  String       @db.Uuid
+  dealId     String?      @db.Uuid
+  type       ActivityType
+  body       String
+  occurredAt DateTime     @default(now()) @db.Timestamptz(3)
+  authorId   String?      @db.Uuid
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  deal    Deal?   @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  author  User?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([partnerId, occurredAt])
+  @@index([dealId])
+}
+
+// ---------------------------------------------------------------------------
+// Housekeeping
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  actorId    String?  @db.Uuid
+  action     String
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+  reason     String?
+  ip         String?
+  occurredAt DateTime @default(now()) @db.Timestamptz(3)
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, occurredAt])
+  @@index([entityType, entityId])
+}
+
+/// Workspace-wide configuration: `annualTargetMinor`, `renewalNoticeDays`,
+/// `staleDays`. Key/value so retuning is a form, not a deploy.
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+}
