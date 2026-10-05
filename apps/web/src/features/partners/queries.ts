@@ -109,7 +109,10 @@ export async function getPartner(partnerId: string) {
       },
       memberships: {
         orderBy: { startDate: 'desc' },
-        include: { tier: { select: { name: true, year: true } } },
+        include: {
+          tier: { select: { name: true, year: true } },
+          deal: { select: { year: true } },
+        },
       },
       activities: {
         orderBy: { occurredAt: 'desc' },

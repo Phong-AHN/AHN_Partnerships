@@ -74,8 +74,10 @@ export async function recordSignInFailure(ip: string | null): Promise<void> {
 export async function clearSignInThrottle(ip: string | null): Promise<void> {
   const key = ip ?? 'unknown';
   try {
-    await db.signInThrottle.delete({ where: { ip: key } });
+    // deleteMany, not delete: no row (the usual case) is not an error, and
+    // Prisma would otherwise log one on every successful sign-in.
+    await db.signInThrottle.deleteMany({ where: { ip: key } });
   } catch {
-    // nothing to clear, or the limiter is unavailable - either way, fine
+    // the limiter is unavailable - fine, it fails open
   }
 }

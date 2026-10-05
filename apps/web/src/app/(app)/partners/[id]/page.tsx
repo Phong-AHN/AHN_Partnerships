@@ -7,6 +7,7 @@ import { can } from '@partners/rbac';
 import { Badge, Breadcrumbs, Card, CardBody, CardHeader, PageHeader } from '@partners/ui';
 import { PriorityPill, SectorLabel } from '@/components/domain';
 import { getPartner } from '@/features/partners/queries';
+import { getSettings } from '@/features/settings/service';
 import { listTierOptions } from '@/features/tiers/queries';
 import { listActiveUsers } from '@/features/users/queries';
 import { requirePrincipalOrRedirect } from '@/server/session';
@@ -16,6 +17,7 @@ import { ActivityTimeline } from './activity-timeline';
 import { ArchiveButton } from './archive-button';
 import { ContactsCard } from './contacts-card';
 import { DealsCard } from './deals-card';
+import { MembershipsCard } from './memberships-card';
 
 export const metadata: Metadata = { title: 'Partner' };
 export const dynamic = 'force-dynamic';
@@ -27,10 +29,11 @@ export default async function PartnerPage({ params }: { params: Promise<{ id: st
   const principal = await requirePrincipalOrRedirect(`/partners/${id}`);
   if (!UUID.test(id)) notFound();
 
-  const [partner, users, tiers] = await Promise.all([
+  const [partner, users, tiers, settings] = await Promise.all([
     getPartner(id),
     listActiveUsers(),
     listTierOptions(),
+    getSettings(),
   ]);
   if (!partner) notFound();
 
@@ -139,6 +142,12 @@ export default async function PartnerPage({ params }: { params: Promise<{ id: st
         </div>
 
         <div className="min-w-0 space-y-5">
+          <MembershipsCard
+            partner={partner}
+            principal={principal}
+            now={now}
+            renewalNoticeDays={settings.renewalNoticeDays}
+          />
           <ContactsCard
             partnerId={partner.id}
             contacts={partner.contacts}
