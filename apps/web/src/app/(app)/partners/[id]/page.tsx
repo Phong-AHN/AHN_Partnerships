@@ -7,6 +7,7 @@ import { can } from '@partners/rbac';
 import { Badge, Breadcrumbs, Card, CardBody, CardHeader, PageHeader } from '@partners/ui';
 import { PriorityPill, SectorLabel } from '@/components/domain';
 import { getPartner } from '@/features/partners/queries';
+import { listTierOptions } from '@/features/tiers/queries';
 import { listActiveUsers } from '@/features/users/queries';
 import { requirePrincipalOrRedirect } from '@/server/session';
 import { EditPartnerButton } from '../partner-form';
@@ -26,7 +27,11 @@ export default async function PartnerPage({ params }: { params: Promise<{ id: st
   const principal = await requirePrincipalOrRedirect(`/partners/${id}`);
   if (!UUID.test(id)) notFound();
 
-  const [partner, users] = await Promise.all([getPartner(id), listActiveUsers()]);
+  const [partner, users, tiers] = await Promise.all([
+    getPartner(id),
+    listActiveUsers(),
+    listTierOptions(),
+  ]);
   if (!partner) notFound();
 
   const now = clock.now();
@@ -105,7 +110,13 @@ export default async function PartnerPage({ params }: { params: Promise<{ id: st
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-5">
-          <DealsCard partner={partner} principal={principal} users={users} now={now} />
+          <DealsCard
+            partner={partner}
+            principal={principal}
+            users={users}
+            tiers={tiers}
+            now={now}
+          />
 
           <Card>
             <CardHeader
