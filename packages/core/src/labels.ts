@@ -67,7 +67,8 @@ export const ASK_TYPE_LABEL: Record<AskType, Descriptor> = {
   },
   STRATEGIC_COMMUNITY: {
     label: 'Strategic / community',
-    tone: 'info',
+    // Not 'info': next to the accent of a membership it reads as the same blue.
+    tone: 'warning',
     hint: 'Programming, events, media or ecosystem collaboration.',
   },
 };
