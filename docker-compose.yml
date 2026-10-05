@@ -1,0 +1,23 @@
+# Local Postgres only. Port 5434 so it never collides with Mercator (5433)
+# or a locally installed Postgres (5432).
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: partners-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: partners
+      POSTGRES_PASSWORD: partners
+      POSTGRES_DB: partners
+    ports:
+      - '5434:5432'
+    volumes:
+      - partners-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U partners -d partners']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  partners-pgdata:
