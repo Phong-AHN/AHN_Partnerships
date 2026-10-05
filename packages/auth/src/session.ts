@@ -129,7 +129,7 @@ export async function revokeSession(token: string | undefined): Promise<void> {
   });
 }
 
-/** Used when a password changes or an account is deactivated. */
+/** Used when an account is deactivated. */
 export async function revokeAllSessionsForUser(userId: string): Promise<number> {
   const result = await db.session.updateMany({
     where: { userId, revokedAt: null },

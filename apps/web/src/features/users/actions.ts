@@ -1,25 +1,21 @@
 'use server';
 
 import { z } from 'zod';
-import { createPasswordToken, hashPassword, revokeAllSessionsForUser } from '@partners/auth';
-import { env } from '@partners/config';
+import { createLoginToken, revokeAllSessionsForUser } from '@partners/auth';
 import { NotFoundError, USER_ROLES, ValidationError, type UserRole } from '@partners/core';
-import { randomToken } from '@partners/core/server';
 import { transaction, type DbTransaction } from '@partners/db';
+import { logger } from '@partners/observability';
 import { actionOk, defineAction } from '@/server/action';
+import { sendInviteEmail, sendSignInEmail } from '@/server/email';
 import { checkbox, id, requiredText } from '@/server/fields';
 import { audit } from '@/server/record';
 
 /**
- * There is no email sending in v1 (PLAN.md §1). Inviting someone, or
- * resetting their password, returns a one-time set-password link that the
- * admin copies and sends themselves. The raw token exists only in that
- * response; the database keeps its hash.
+ * Nobody has a password. Adding someone emails them an invitation link
+ * (through Resend); after that they ask for a sign-in link themselves on the
+ * sign-in page. An admin never handles a link by hand - "Send sign-in link"
+ * here just emails one on the person's behalf.
  */
-
-function setPasswordUrl(token: string): string {
-  return `${env().APP_URL}/set-password?token=${encodeURIComponent(token)}`;
-}
 
 /** The workspace must always keep one active admin who is not the change's target. */
 async function assertAnotherAdminRemains(tx: DbTransaction, userId: string) {
@@ -49,13 +45,10 @@ export const inviteUserAction = defineAction({
       });
       if (existing) {
         throw new ValidationError('That email already has an account.', {
-          email: ['That email already has an account. Use "Reset link" on it instead.'],
+          email: ['That email already has an account. Use "Send sign-in link" on it instead.'],
         });
       }
-      // A real but unusable hash: nobody knows the password until the link is used.
-      const row = await tx.user.create({
-        data: { ...input, passwordHash: await hashPassword(randomToken(32)) },
-      });
+      const row = await tx.user.create({ data: input });
       await audit(tx, {
         principal: ctx.principal,
         action: 'user.invite',
@@ -66,16 +59,34 @@ export const inviteUserAction = defineAction({
       });
       return row;
     });
-    const { token, expiresAt } = await createPasswordToken(user.id, 'INVITE');
-    return actionOk(
-      { link: setPasswordUrl(token), expiresAt: expiresAt.toISOString(), name: user.name },
-      `${user.name} invited.`,
-    );
+
+    const { token, expiresAt } = await createLoginToken(user.id, 'INVITE');
+    try {
+      await sendInviteEmail({
+        to: user.email,
+        name: user.name,
+        inviterName: ctx.principal.name,
+        token,
+        expiresAt,
+      });
+    } catch (error) {
+      // The account exists either way; say so, and how to retry.
+      logger.error({ err: error, userId: user.id }, 'invite email failed to send');
+      return actionOk(
+        { emailed: false },
+        `${user.name} was added, but the invitation email could not be sent. Try "Send sign-in link" in a moment.`,
+      );
+    }
+    return actionOk({ emailed: true }, `Invitation emailed to ${user.email}.`);
   },
 });
 
-export const resetLinkAction = defineAction({
-  name: 'users.reset_link',
+/**
+ * Emails a link on the person's behalf: an invitation again if they have
+ * never signed in, an ordinary sign-in link otherwise.
+ */
+export const sendSignInLinkAction = defineAction({
+  name: 'users.send_sign_in_link',
   permission: 'user:manage',
   input: z.object({ id }),
   handler: async ({ id: userId }, ctx) => {
@@ -89,17 +100,33 @@ export const resetLinkAction = defineAction({
       }
       await audit(tx, {
         principal: ctx.principal,
-        action: 'user.reset_link',
+        action: 'user.send_sign_in_link',
         entityType: 'User',
         entityId: userId,
         ip: ctx.ip,
       });
       return row;
     });
-    const { token, expiresAt } = await createPasswordToken(user.id, 'RESET');
+
+    const neverSignedIn = user.lastLoginAt === null;
+    const { token, expiresAt } = await createLoginToken(
+      user.id,
+      neverSignedIn ? 'INVITE' : 'SIGN_IN',
+    );
+    if (neverSignedIn) {
+      await sendInviteEmail({
+        to: user.email,
+        name: user.name,
+        inviterName: ctx.principal.name,
+        token,
+        expiresAt,
+      });
+    } else {
+      await sendSignInEmail({ to: user.email, name: user.name, token, expiresAt });
+    }
     return actionOk(
-      { link: setPasswordUrl(token), expiresAt: expiresAt.toISOString(), name: user.name },
-      'Reset link created.',
+      undefined,
+      `${neverSignedIn ? 'Invitation' : 'Sign-in link'} emailed to ${user.email}.`,
     );
   },
 });

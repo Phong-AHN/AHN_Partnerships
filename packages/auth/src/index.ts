@@ -1,5 +1,4 @@
-export * from './password';
-export * from './password-token';
+export * from './login-token';
+export * from './magic-link';
 export * from './rate-limit';
 export * from './session';
-export * from './sign-in';

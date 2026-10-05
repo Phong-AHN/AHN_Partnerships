@@ -12,10 +12,6 @@ import { actingAs } from './request-context';
  * file shares one database.
  */
 
-// Never verified - tests mint sessions directly, so the hash only has to
-// satisfy the NOT NULL column.
-const UNUSED_PASSWORD_HASH = 'scrypt$1$1$1$dW51c2Vk$dW51c2Vk';
-
 export interface TestUser extends Principal {
   token: string;
 }
@@ -34,7 +30,6 @@ export async function createTestUser(role: UserRole): Promise<TestUser> {
     data: {
       email: `it-${suffix}@partners.test`,
       name: `Test ${role} ${suffix}`,
-      passwordHash: UNUSED_PASSWORD_HASH,
       role,
     },
   });

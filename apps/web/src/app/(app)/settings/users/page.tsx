@@ -31,7 +31,7 @@ export default async function UsersPage() {
   return (
     <Section
       title="Users"
-      description="AHN team only. Admins manage tiers, users, import and settings; members work the pipeline; viewers read."
+      description="AHN team only. People sign in with an emailed link - there are no passwords. Admins manage tiers, users, import and settings; members work the pipeline; viewers read."
       actions={<InviteUserButton />}
     >
       <TableScroller>
@@ -65,7 +65,11 @@ export default async function UsersPage() {
                   )}
                 </TD>
                 <TD className="text-muted text-[12.5px]">
-                  {user.lastLoginAt ? formatRelative(user.lastLoginAt, now) : 'Never'}
+                  {user.lastLoginAt ? (
+                    formatRelative(user.lastLoginAt, now)
+                  ) : (
+                    <span className="text-warning-ink">Invited - not signed in yet</span>
+                  )}
                 </TD>
                 <TD>
                   <UserRowActions
@@ -74,6 +78,7 @@ export default async function UsersPage() {
                       name: user.name,
                       role: user.role,
                       isActive: user.isActive,
+                      invited: user.lastLoginAt === null,
                     }}
                     isSelf={user.id === principal.id}
                   />

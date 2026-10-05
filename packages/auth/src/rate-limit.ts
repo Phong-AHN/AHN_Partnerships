@@ -2,20 +2,20 @@ import { clock, ValidationError } from '@partners/core';
 import { db } from '@partners/db';
 
 /**
- * Sign-in throttling, keyed by IP rather than by account - see the
- * `SignInThrottle` model's own comment for why an account-keyed lockout is
- * itself a denial-of-service vector, and D-050 for the original finding.
- * The first few misses are free (typo tolerance); past that the delay
- * doubles each attempt, capped, and fifteen quiet minutes forgets the count
- * entirely. Every function here fails open: the limiter itself being
- * unavailable must never be the reason a real sign-in cannot happen.
+ * Throttles sign-in link requests, keyed by IP rather than by account - see
+ * the `SignInThrottle` model's comment for why an account-keyed lockout is
+ * itself a denial-of-service vector. Every request counts (each one can send
+ * an email); the first few are free, past that the delay doubles each time,
+ * capped, and fifteen quiet minutes forgets the count. A completed sign-in
+ * clears it. Every function here fails open: the limiter being unavailable
+ * must never be the reason a real sign-in cannot happen.
  */
 const FREE_ATTEMPTS = 4;
 const BASE_DELAY_MS = 1_000;
 const MAX_DELAY_MS = 30_000;
 const RESET_AFTER_MS = 15 * 60 * 1000;
 
-const SLOW_DOWN_MESSAGE = 'Too many attempts. Wait a moment and try again.';
+const SLOW_DOWN_MESSAGE = 'Too many sign-in requests. Wait a moment and try again.';
 
 function delayForAttempts(attempts: number): number {
   if (attempts <= FREE_ATTEMPTS) return 0;
@@ -49,7 +49,7 @@ export async function checkSignInThrottle(ip: string | null): Promise<void> {
   }
 }
 
-export async function recordSignInFailure(ip: string | null): Promise<void> {
+export async function recordSignInAttempt(ip: string | null): Promise<void> {
   const key = ip ?? 'unknown';
   const now = clock.now();
   try {

@@ -64,7 +64,7 @@ function TierForm({ tier, onDone }: { tier?: TierFormValues; onDone: () => void 
             name="name"
             required
             maxLength={60}
-            placeholder="Platinum"
+            placeholder="Title Package"
             defaultValue={tier?.name}
             autoFocus
           />

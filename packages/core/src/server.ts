@@ -6,7 +6,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
  * production build.
  */
 
-/** URL-safe opaque token. Used for session ids and set-password links. */
+/** URL-safe opaque token. Used for session ids and sign-in links. */
 export function randomToken(bytes = 32): string {
   return randomBytes(bytes).toString('base64url');
 }

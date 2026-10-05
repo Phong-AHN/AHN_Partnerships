@@ -43,7 +43,7 @@ export function AskChip({ askType, short }: { askType: AskType; short?: boolean 
   );
 }
 
-/** "Platinum · $50,000", "$12,000 est.", or "No tier yet" for an unpriced membership. */
+/** "Title Package · $50,000", "$12,000 est.", or "No tier yet" for an unpriced membership. */
 export function DealValue({
   askType,
   amountMinor,

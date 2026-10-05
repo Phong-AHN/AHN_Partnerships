@@ -1,8 +1,9 @@
 /**
  * Seeds a fresh database with what the app needs on day one:
  *
- *   - the membership tiers (PLAN.md §5.3 - placeholders until real pricing),
- *   - the first admin, from SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD,
+ *   - the two 2027 membership packages,
+ *   - the first admin, from SEED_ADMIN_EMAIL (sign-in is by emailed magic link,
+ *     so there is no password to seed),
  *   - workspace settings (target, renewal notice, stale threshold),
  *   - the 50 partners from Bryan's 3 Oct 2026 checklist (PLAN.md Appendix A),
  *     each with its contacts and one 2027 deal.
@@ -12,7 +13,6 @@
  * started editing - never overwrites real work.
  */
 import { readFileSync } from 'node:fs';
-import { randomBytes, scryptSync } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadRootEnv } from '@partners/config';
@@ -24,56 +24,18 @@ loadRootEnv();
 const db = new PrismaClient();
 const here = dirname(fileURLToPath(import.meta.url));
 
-/** Same format as @partners/auth's hashPassword - inlined to avoid a db -> auth cycle. */
-function hashPassword(password: string): string {
-  const N = 2 ** 15;
-  const salt = randomBytes(16);
-  const derived = scryptSync(password.normalize('NFKC'), salt, 64, {
-    N,
-    r: 8,
-    p: 1,
-    maxmem: 256 * 1024 * 1024,
-  });
-  return ['scrypt', N, 8, 1, salt.toString('base64'), derived.toString('base64')].join('$');
-}
-
+/**
+ * The 2027 membership packages, both priced per year. Benefits are left for
+ * an admin to fill in under Settings -> Membership tiers.
+ */
 const TIERS = [
+  { code: 'TITLE_2027', name: 'Title Package', priceMinor: 5_000_000, sortOrder: 1, benefits: [] },
   {
-    code: 'PLATINUM_2027',
-    name: 'Platinum',
-    priceMinor: 5_000_000,
-    sortOrder: 1,
-    benefits: [
-      'Title recognition across AHN/AHNF flagship events',
-      'Speaking slot at the annual summit',
-      'Featured partner profile and newsletter placement',
-      'Member referrals and founder introductions',
-    ],
-  },
-  {
-    code: 'GOLD_2027',
-    name: 'Gold',
-    priceMinor: 2_500_000,
-    sortOrder: 2,
-    benefits: [
-      'Logo recognition at AHN events',
-      'Panel participation at one event',
-      'Newsletter placement',
-    ],
-  },
-  {
-    code: 'SILVER_2027',
-    name: 'Silver',
+    code: 'SMALL_BUSINESS_2027',
+    name: 'Small Business Package',
     priceMinor: 1_000_000,
-    sortOrder: 3,
-    benefits: ['Logo recognition at AHN events', 'Member directory listing'],
-  },
-  {
-    code: 'COMMUNITY_2027',
-    name: 'Community',
-    priceMinor: 500_000,
-    sortOrder: 4,
-    benefits: ['Member directory listing', 'Community event invitations'],
+    sortOrder: 2,
+    benefits: [],
   },
 ];
 
@@ -111,12 +73,10 @@ async function seedTiers() {
 
 async function seedAdmin(): Promise<string | null> {
   const email = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase();
-  const password = process.env.SEED_ADMIN_PASSWORD;
-  if (!email || !password) {
-    console.warn('admin: SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD not set - skipped');
+  if (!email) {
+    console.warn('admin: SEED_ADMIN_EMAIL not set - skipped');
     return null;
   }
-  if (password.length < 12) throw new Error('SEED_ADMIN_PASSWORD must be at least 12 characters.');
 
   const existing = await db.user.findUnique({ where: { email }, select: { id: true } });
   if (existing) {
@@ -124,12 +84,7 @@ async function seedAdmin(): Promise<string | null> {
     return existing.id;
   }
   const user = await db.user.create({
-    data: {
-      email,
-      name: process.env.SEED_ADMIN_NAME?.trim() || 'AHN Admin',
-      passwordHash: hashPassword(password),
-      role: 'ADMIN',
-    },
+    data: { email, name: process.env.SEED_ADMIN_NAME?.trim() || 'AHN Admin', role: 'ADMIN' },
   });
   console.log(`admin: created ${email}`);
   return user.id;

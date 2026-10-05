@@ -27,7 +27,7 @@ Mỗi đối tác là một **deal trong pipeline**, đúng như anh Bryan yêu 
 
 ### Không có trong v1
 
-- Portal cho đối tác bên ngoài, gửi email từ app, tích hợp Gmail/Slack/ClickUp.
+- Portal cho đối tác bên ngoài, email follow-up/marketing từ app, tích hợp Gmail/Slack/ClickUp. (Email duy nhất app gửi là link đăng nhập và lời mời, qua Resend - mục 5.4.)
 - Hoá đơn và thanh toán (v1 chỉ ghi "đã thanh toán / chưa").
 - Upload file (proposal PDF chỉ lưu dưới dạng link).
 - Worker nền, Redis, S3.
@@ -39,7 +39,7 @@ Mỗi đối tác là một **deal trong pipeline**, đúng như anh Bryan yêu 
 
 | #   | Câu hỏi                                                                           | Mặc định nếu chưa có câu trả lời                                        |
 | --- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| 1   | **Tên, giá và quyền lợi của từng hạng hội viên**                                  | Seed hạng giả lập (mục 5.3), admin sửa sau                              |
+| 1   | **Tên, giá và quyền lợi của từng hạng hội viên**                                  | **Đã chốt** (mục 5.3): Title $50,000/năm, Small Business $10,000/năm    |
 | 2   | Hạng hội viên áp dụng cho AHN, AHNF, hay cả hai? Mỗi bên có bảng giá riêng không? | Một bảng giá chung; deal có trường `entity`                             |
 | 3   | Chu kỳ hội viên                                                                   | 12 tháng tính từ ngày bắt đầu, nhắc gia hạn trước 60 ngày               |
 | 4   | Tiền tệ                                                                           | USD, lưu bằng cent (`amountMinor`), giống Mercator                      |
@@ -147,8 +147,8 @@ model User {
 /// hoặc sửa giá - các deal cũ đã chụp lại giá vào `Deal.amountMinor`.
 model MembershipTier {
   id          String   @id @default(uuid(7)) @db.Uuid
-  code        String   @unique          // "PLATINUM_2027"
-  name        String                     // "Platinum"
+  code        String   @unique          // "TITLE_2027"
+  name        String                     // "Title Package"
   year        Int                        // 2027
   priceMinor  Int                        // 5000000 = $50,000
   benefits    String[]                   // danh sách quyền lợi
@@ -325,16 +325,22 @@ Nhãn trong giao diện dùng tiếng Anh, giống Mercator, vì sếp đọc ti
 
 Mỗi mutation đều đi qua `defineAction({ permission })`, giống Mercator.
 
-### 5.3 Tier mặc định (TẠM, thay bằng bảng giá thật)
+### 5.3 Gói hội viên 2027 (đã chốt)
 
-| code             | name      | year | price   |
-| ---------------- | --------- | ---- | ------- |
-| `PLATINUM_2027`  | Platinum  | 2027 | $50,000 |
-| `GOLD_2027`      | Gold      | 2027 | $25,000 |
-| `SILVER_2027`    | Silver    | 2027 | $10,000 |
-| `COMMUNITY_2027` | Community | 2027 | $5,000  |
+| code                  | name                   | year | price         |
+| --------------------- | ---------------------- | ---- | ------------- |
+| `TITLE_2027`          | Title Package          | 2027 | $50,000 / năm |
+| `SMALL_BUSINESS_2027` | Small Business Package | 2027 | $10,000 / năm |
 
-Mức $50,000 lấy theo hai đề xuất có trong email (Azurium, Steller). Các mức còn lại là ví dụ.
+Hai đề xuất $50K trong email (Azurium, Steller) được seed vào Title Package. Quyền lợi của từng gói admin nhập ở `/settings/tiers`.
+
+### 5.4 Đăng nhập bằng magic link (thay cho mật khẩu)
+
+- Không có mật khẩu. Người dùng nhập email ở `/sign-in` và nhận link đăng nhập dùng một lần qua **Resend** (hết hạn sau 15 phút).
+- Admin mời người mới ở `/settings/users`: app tự gửi email mời (link hết hạn sau 7 ngày). Admin không phải copy link; nút "Send sign-in link" gửi lại khi cần.
+- Mở link chỉ hiện nút xác nhận; bấm nút mới đăng nhập, để trình quét link trong email (Outlook Safe Links...) không dùng mất link.
+- Phản hồi giống nhau dù email có tài khoản hay không; giới hạn tần suất theo IP và tối đa 1 link/người/phút.
+- Biến môi trường: `RESEND_API_KEY` (bắt buộc ở production), `EMAIL_FROM` (domain đã verify trong Resend). Local không có key thì link được in ra log của `pnpm dev`.
 
 ---
 
@@ -356,7 +362,7 @@ Mỗi giai đoạn kết thúc bằng `pnpm verify`, tức format, lint, typeche
 1. Viết `schema.prisma` theo mục 4 và migration `init` có check constraint.
 2. `prisma/seed.ts`:
    - tier ở mục 5.3;
-   - 1 admin lấy từ biến `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`;
+   - 1 admin lấy từ biến `SEED_ADMIN_EMAIL` (đăng nhập bằng magic link, không có mật khẩu);
    - 50 đối tác ở Phụ lục A, kèm người liên hệ (tách theo `;`);
    - mỗi đối tác 1 deal năm 2027 với `askType`, stage và priority theo phụ lục.
 3. Integration test cho các constraint, bảo đảm vi phạm thì bị từ chối.
@@ -384,7 +390,7 @@ Mỗi giai đoạn kết thúc bằng `pnpm verify`, tức format, lint, typeche
 2. `/pipeline` dạng board có kéo-thả (dùng `@dnd-kit/core`) và dạng bảng; bộ lọc lưu trên URL.
 3. Unit test cho phần tính stage, quá hạn và bị bỏ quên. Integration test cho `moveStage` → WON tạo membership.
 
-**Xong khi:** kéo deal Azurium từ PROPOSAL_SENT sang WON thì sinh ra membership Platinum $50,000.
+**Xong khi:** kéo deal Azurium từ PROPOSAL_SENT sang WON thì sinh ra membership Title Package $50,000.
 
 ### Giai đoạn 5: Hội viên và gia hạn (1 ngày)
 
@@ -505,6 +511,6 @@ Right to Start,GLOBAL_GOVERNMENT_ECOSYSTEM,Victor Hwang,SC,BACKLOG,PROSPECT,0,,"
 
 Khi seed:
 
-- Deal `CM` có `amount_usd` thì gán tier có giá bằng số đó (hiện là Platinum $50,000).
+- Deal `CM` có `amount_usd` thì gán tier có giá bằng số đó (Title Package $50,000).
 - Deal `CM` không có số tiền thì để trống tier (giữ `askType` là `CORPORATE_MEMBERSHIP`). Constraint cho phép điều này ở các stage đầu. Muốn chuyển deal sang `PROPOSAL_SENT` thì phải chọn tier trước; form và action báo lỗi rõ ràng khi chưa chọn.
 - `New York Asian Film Festival`: "NYAFF team" lưu thành một contact không có email.

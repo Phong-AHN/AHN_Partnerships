@@ -4,76 +4,116 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import {
-  checkPasswordStrength,
-  consumePasswordToken,
-  createSession,
-  hashPassword,
+  completeSignIn,
+  prepareSignInLink,
   requireSession,
-  revokeAllSessionsForUser,
   revokeSession,
   SESSION_COOKIE,
   sessionCookieOptions,
-  signIn as performSignIn,
 } from '@partners/auth';
-import { isAppError, ValidationError } from '@partners/core';
-import { db } from '@partners/db';
+import { ValidationError } from '@partners/core';
 import { logger } from '@partners/observability';
 import { landingPathFor } from '@partners/rbac';
+import { sendSignInEmail } from '@/server/email';
 import { requestMeta } from '@/server/session';
-import { actionError, type ActionResult } from '@/server/action';
+import { actionError, actionOk, type ActionResult } from '@/server/action';
 
 /**
- * The actions here run signed out, so none of them is built with
- * `defineAction`: there is no principal for it to resolve. Each does its own
- * validation and never asserts a permission.
+ * Sign-in is passwordless: ask for a link, click the link. Both actions run
+ * signed out, so neither is built with `defineAction` - there is no principal
+ * yet - and each does its own validation.
  */
 
-const signInInput = z.object({
+const GENERIC_SENT = 'If that address has an account, a sign-in link is on its way.';
+
+function safeNext(next: string | null | undefined): string | null {
+  return next && next.startsWith('/') && !next.startsWith('//') ? next : null;
+}
+
+const requestInput = z.object({
   email: z
-    .string()
+    .string({ required_error: 'Enter your email address.' })
     .trim()
     .min(1, 'Enter your email address.')
     .email('Enter a valid email address.'),
-  password: z.string().min(1, 'Enter your password.'),
   next: z.string().optional(),
 });
 
-function issuesToFieldErrors(issues: z.ZodIssue[]): Record<string, string[]> {
-  const fieldErrors: Record<string, string[]> = {};
-  for (const issue of issues) (fieldErrors[issue.path.join('.') || '_'] ??= []).push(issue.message);
-  return fieldErrors;
-}
-
-export async function signInAction(_prev: unknown, form: FormData): Promise<ActionResult<never>> {
-  const parsed = signInInput.safeParse({
-    email: form.get('email'),
-    password: form.get('password'),
+/**
+ * Always the same answer whether or not the address has an account, so the
+ * form cannot be used to find out who works here. A failed send is logged,
+ * not shown, for the same reason.
+ */
+export async function requestSignInLinkAction(
+  _prev: unknown,
+  form: FormData,
+): Promise<ActionResult<{ email: string }>> {
+  const parsed = requestInput.safeParse({
+    email: form.get('email') ?? undefined,
     next: form.get('next') ?? undefined,
   });
   if (!parsed.success) {
-    return actionError('Check the details below.', issuesToFieldErrors(parsed.error.issues));
+    const fieldErrors: Record<string, string[]> = {};
+    for (const issue of parsed.error.issues) {
+      (fieldErrors[issue.path.join('.') || '_'] ??= []).push(issue.message);
+    }
+    return actionError('Check the details below.', fieldErrors);
   }
+
+  try {
+    const meta = await requestMeta();
+    const link = await prepareSignInLink(parsed.data.email, meta);
+    if (link) {
+      await sendSignInEmail({
+        to: link.email,
+        name: link.name,
+        token: link.token,
+        expiresAt: link.expiresAt,
+        next: safeNext(parsed.data.next),
+      }).catch((error: unknown) => {
+        logger.error({ err: error, userId: link.userId }, 'sign-in email failed to send');
+      });
+    }
+  } catch (error) {
+    if (error instanceof ValidationError) return actionError(error.userMessage, error.fieldErrors);
+    logger.error({ err: error }, 'requestSignInLinkAction failed');
+    return actionError('Something went wrong. Try again in a moment.');
+  }
+
+  return actionOk({ email: parsed.data.email.toLowerCase() }, GENERIC_SENT);
+}
+
+const verifyInput = z.object({ token: z.string().trim().min(1), next: z.string().optional() });
+
+/**
+ * Spends the link. Runs from a button on `/sign-in/verify`, not from the GET
+ * of the link itself: mail scanners (Outlook Safe Links and the like) open
+ * every link in an email, and a link that signed in on GET would be used up
+ * by the scanner before the person ever clicked it.
+ */
+export async function verifySignInAction(
+  _prev: unknown,
+  form: FormData,
+): Promise<ActionResult<never>> {
+  const parsed = verifyInput.safeParse({
+    token: form.get('token') ?? undefined,
+    next: form.get('next') ?? undefined,
+  });
+  if (!parsed.success) return actionError('That link is incomplete. Ask for a new one.');
 
   let destination: string;
   try {
     const meta = await requestMeta();
-    const { session } = await performSignIn(parsed.data.email, parsed.data.password, meta);
-
-    const store = await cookies();
-    store.set(SESSION_COOKIE, session.token, sessionCookieOptions());
-
-    const resolved = await requireSession(session.token);
-    const fallback = landingPathFor(resolved.principal);
-    // Only same-origin paths are honoured, so `?next=` cannot become an open
-    // redirect to somebody else's site.
-    const requested = parsed.data.next;
-    destination =
-      requested && requested.startsWith('/') && !requested.startsWith('//') ? requested : fallback;
-  } catch (error) {
-    if (error instanceof ValidationError) {
-      return actionError(error.userMessage, error.fieldErrors);
+    const signedIn = await completeSignIn(parsed.data.token, meta);
+    if (!signedIn) {
+      return actionError('That link has expired or was already used. Ask for a new one below.');
     }
-    if (!isAppError(error)) logger.error({ err: error }, 'sign-in failed');
+    const store = await cookies();
+    store.set(SESSION_COOKIE, signedIn.session.token, sessionCookieOptions());
+    const { principal } = await requireSession(signedIn.session.token);
+    destination = safeNext(parsed.data.next) ?? landingPathFor(principal);
+  } catch (error) {
+    logger.error({ err: error }, 'verifySignInAction failed');
     return actionError('Sign-in could not be completed. Try again.');
   }
 
@@ -83,54 +123,7 @@ export async function signInAction(_prev: unknown, form: FormData): Promise<Acti
 
 export async function signOutAction(): Promise<void> {
   const store = await cookies();
-  const token = store.get(SESSION_COOKIE)?.value;
-  await revokeSession(token);
+  await revokeSession(store.get(SESSION_COOKIE)?.value);
   store.delete(SESSION_COOKIE);
   redirect('/sign-in');
-}
-
-const setPasswordInput = z.object({
-  token: z.string().trim().min(1),
-  password: z.string().min(1, 'Choose a password.'),
-});
-
-/**
- * The one landing page for both a first-time invite and an admin-issued reset
- * (`/set-password?token=...`). `consumePasswordToken` does not care which the
- * token was for, only that it is genuine, unused and unexpired.
- */
-export async function setPasswordAction(
-  _prev: ActionResult<never> | null,
-  form: FormData,
-): Promise<ActionResult<never>> {
-  const parsed = setPasswordInput.safeParse({
-    token: form.get('token'),
-    password: form.get('password'),
-  });
-  if (!parsed.success) {
-    return actionError('That link is missing something. Ask an admin for a new one.');
-  }
-
-  const strength = checkPasswordStrength(parsed.data.password);
-  if (!strength.ok) {
-    return actionError('Choose a stronger password.', { password: strength.problems });
-  }
-
-  const consumed = await consumePasswordToken(parsed.data.token);
-  if (!consumed) {
-    return actionError('That link has expired or was already used. Ask an admin for a new one.');
-  }
-
-  const passwordHash = await hashPassword(parsed.data.password);
-  await db.user.update({ where: { id: consumed.userId }, data: { passwordHash } });
-  // A reset invalidates every other session, in case the account was
-  // compromised; an invite has none yet to revoke, so this is a no-op there.
-  await revokeAllSessionsForUser(consumed.userId);
-
-  const meta = await requestMeta();
-  const session = await createSession(consumed.userId, meta);
-  const store = await cookies();
-  store.set(SESSION_COOKIE, session.token, sessionCookieOptions());
-
-  redirect('/');
 }

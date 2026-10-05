@@ -27,21 +27,40 @@ export function loadRootEnv(): void {
   }
 }
 
-const schema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  APP_URL: z.string().url().default('http://localhost:3000'),
-  LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+const schema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    APP_URL: z.string().url().default('http://localhost:3000'),
+    LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
 
-  DATABASE_URL: z.string().min(1),
-  DIRECT_URL: z.string().optional(),
+    DATABASE_URL: z.string().min(1),
+    DIRECT_URL: z.string().optional(),
 
-  SESSION_SECRET: z
-    .string()
-    .min(1, 'SESSION_SECRET is required')
-    .refine((v) => Buffer.from(v, 'base64').length >= 24, {
-      message: 'SESSION_SECRET must decode to at least 24 bytes of base64',
-    }),
-});
+    SESSION_SECRET: z
+      .string()
+      .min(1, 'SESSION_SECRET is required')
+      .refine((v) => Buffer.from(v, 'base64').length >= 24, {
+        message: 'SESSION_SECRET must decode to at least 24 bytes of base64',
+      }),
+
+    /**
+     * Resend, for magic-link sign-in and invitations. Unset outside production
+     * means links are written to the server log instead of emailed, so local
+     * development needs no account; production refuses to boot without it.
+     */
+    RESEND_API_KEY: z.string().optional(),
+    /** Must be on a domain verified in Resend, e.g. `AHN Partnerships <partners@ahnmedia.com>`. */
+    EMAIL_FROM: z.string().min(3).default('AHN Partnerships <onboarding@resend.dev>'),
+  })
+  .superRefine((value, ctx) => {
+    if (value.NODE_ENV === 'production' && !value.RESEND_API_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['RESEND_API_KEY'],
+        message: 'RESEND_API_KEY is required in production - sign-in links are sent through Resend',
+      });
+    }
+  });
 
 export type Env = z.infer<typeof schema>;
 

@@ -88,9 +88,9 @@ enum ActivityType {
   MEMBERSHIP_STARTED
 }
 
-enum PasswordTokenPurpose {
+enum LoginTokenPurpose {
   INVITE
-  RESET
+  SIGN_IN
 }
 
 // ---------------------------------------------------------------------------
@@ -98,22 +98,21 @@ enum PasswordTokenPurpose {
 // ---------------------------------------------------------------------------
 
 model User {
-  id           String    @id @default(uuid(7)) @db.Uuid
-  email        String    @unique
-  name         String
-  passwordHash String
-  role         UserRole  @default(MEMBER)
-  isActive     Boolean   @default(true)
-  lastLoginAt  DateTime? @db.Timestamptz(3)
-  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
+  id          String    @id @default(uuid(7)) @db.Uuid
+  email       String    @unique
+  name        String
+  role        UserRole  @default(MEMBER)
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
 
-  sessions       Session[]
-  passwordTokens PasswordToken[]
-  ownedPartners  Partner[]       @relation("PartnerOwner")
-  ownedDeals     Deal[]          @relation("DealOwner")
-  activities     Activity[]
-  auditLogs      AuditLog[]
+  sessions      Session[]
+  loginTokens   LoginToken[]
+  ownedPartners Partner[]    @relation("PartnerOwner")
+  ownedDeals    Deal[]       @relation("DealOwner")
+  activities    Activity[]
+  auditLogs     AuditLog[]
 }
 
 model Session {
@@ -134,17 +133,18 @@ model Session {
   @@index([expiresAt])
 }
 
-/// A first-time invite and a password reset walk the same one-time, hashed,
-/// short-lived link. There is no email sending in v1: an admin copies the link
-/// from /settings/users and sends it themselves.
-model PasswordToken {
-  id        String               @id @default(uuid(7)) @db.Uuid
-  userId    String               @db.Uuid
-  purpose   PasswordTokenPurpose
-  tokenHash String               @unique
-  expiresAt DateTime             @db.Timestamptz(3)
-  usedAt    DateTime?            @db.Timestamptz(3)
-  createdAt DateTime             @default(now()) @db.Timestamptz(3)
+/// Sign-in is passwordless: a one-time link is emailed (through Resend) and
+/// clicking it signs the person in. `INVITE` is the first one, sent when an
+/// admin adds someone; `SIGN_IN` is every one after that. The raw token exists
+/// only in the email; the database keeps its SHA-256.
+model LoginToken {
+  id        String            @id @default(uuid(7)) @db.Uuid
+  userId    String            @db.Uuid
+  purpose   LoginTokenPurpose
+  tokenHash String            @unique
+  expiresAt DateTime          @db.Timestamptz(3)
+  usedAt    DateTime?         @db.Timestamptz(3)
+  createdAt DateTime          @default(now()) @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -152,8 +152,8 @@ model PasswordToken {
   @@index([expiresAt])
 }
 
-/// Sign-in throttling keyed by source IP, not by account - an account-keyed
-/// lockout lets anyone lock a real person out by failing their password.
+/// Throttles sign-in link requests by source IP, not by account - an
+/// account-keyed lockout would let anyone lock a real person out.
 model SignInThrottle {
   ip             String   @id
   failedAttempts Int      @default(0)

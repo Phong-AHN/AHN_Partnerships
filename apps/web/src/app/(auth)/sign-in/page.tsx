@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import type { Metadata } from 'next';
 import { CircleCheck } from 'lucide-react';
+import { env } from '@partners/config';
 import { landingPathFor } from '@partners/rbac';
 import { LogoMark } from '@/components/shell/sidebar';
 import { getPrincipal } from '@/server/session';
@@ -88,10 +89,10 @@ export default async function SignInPage({
 
           <h2 className="text-ink text-[22px] font-semibold leading-7 tracking-tight">Sign in</h2>
           <p className="text-muted mb-7 mt-1.5 text-[13.5px]">
-            Use the account an admin set up for you.
+            We will email you a link - no password to remember.
           </p>
 
-          <SignInForm next={next} />
+          <SignInForm next={next} devHint={!env().RESEND_API_KEY} />
         </div>
       </section>
     </main>

@@ -31,7 +31,7 @@ const tierFields = {
   isActive: checkbox,
 };
 
-/** `Platinum` + 2027 → `PLATINUM_2027`. */
+/** `Title Package` + 2027 → `TITLE_PACKAGE_2027`. */
 function tierCode(name: string, tierYear: number): string {
   const slug = name
     .normalize('NFKD')

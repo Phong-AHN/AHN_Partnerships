@@ -1,12 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { consumePasswordToken } from '@partners/auth';
+import { consumeLoginToken } from '@partners/auth';
 import { db } from '@partners/db';
 import { actAs, cleanupFixtures, createTestUser } from '../../../test/fixtures';
+import { takeSentEmails } from '@/server/email';
 import { getSettings } from '../settings/service';
 import { updateSettingsAction } from '../settings/actions';
 import { createTierAction, updateTierAction } from '../tiers/actions';
-import { inviteUserAction, resetLinkAction, updateUserAction } from './actions';
+import { inviteUserAction, sendSignInLinkAction, updateUserAction } from './actions';
+
+function tokenIn(text: string): string {
+  const url = /https?:\/\/\S+/.exec(text)?.[0] ?? '';
+  return new URL(url).searchParams.get('token') ?? '';
+}
 
 const invitedEmails: string[] = [];
 const tierIds: string[] = [];
@@ -18,8 +24,10 @@ afterAll(async () => {
 });
 
 describe('users', () => {
-  it('invites with a one-time set-password link', async () => {
-    actAs(await createTestUser('ADMIN'));
+  it('emails an invitation whose link signs the person in', async () => {
+    const admin = await createTestUser('ADMIN');
+    actAs(admin);
+    takeSentEmails();
     const email = `it-invite-${randomUUID().slice(0, 8)}@partners.test`;
     invitedEmails.push(email);
     const result = await inviteUserAction({
@@ -27,11 +35,20 @@ describe('users', () => {
       email: email.toUpperCase(),
       role: 'MEMBER',
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const token = new URL(result.data.link).searchParams.get('token')!;
+    expect(result).toMatchObject({ ok: true, data: { emailed: true } });
+
+    const [sent, ...rest] = takeSentEmails();
+    expect(rest).toEqual([]);
+    expect(sent).toMatchObject({
+      to: email,
+      subject: `${admin.name} invited you to AHN Partnerships`,
+    });
+    expect(sent!.text).toMatch(/\/sign-in\/verify\?token=/);
     const user = await db.user.findUniqueOrThrow({ where: { email } });
-    expect(await consumePasswordToken(token)).toEqual({ userId: user.id, purpose: 'INVITE' });
+    expect(await consumeLoginToken(tokenIn(sent!.text))).toEqual({
+      userId: user.id,
+      purpose: 'INVITE',
+    });
 
     expect(await inviteUserAction({ name: 'Again', email, role: 'MEMBER' })).toMatchObject({
       ok: false,
@@ -39,18 +56,37 @@ describe('users', () => {
     });
   });
 
-  it('issues reset links and deactivates, revoking sessions', async () => {
+  it('re-sends an invitation, or a sign-in link once they have signed in', async () => {
     actAs(await createTestUser('ADMIN'));
     const target = await createTestUser('MEMBER');
-    const reset = await resetLinkAction({ id: target.id });
-    expect(reset.ok && reset.data.link).toMatch(/\/set-password\?token=/);
+    takeSentEmails();
 
+    expect((await sendSignInLinkAction({ id: target.id })).ok).toBe(true);
+    expect(takeSentEmails()[0]?.subject).toMatch(/invited you/);
+
+    await db.user.update({
+      where: { id: target.id },
+      data: { lastLoginAt: new Date('2026-10-01') },
+    });
+    expect((await sendSignInLinkAction({ id: target.id })).ok).toBe(true);
+    const [sent] = takeSentEmails();
+    expect(sent).toMatchObject({ to: target.email, subject: 'Your AHN Partnerships sign-in link' });
+    expect((await consumeLoginToken(tokenIn(sent!.text)))?.purpose).toBe('SIGN_IN');
+  });
+
+  it('deactivates, revoking sessions, and then sends nothing', async () => {
+    actAs(await createTestUser('ADMIN'));
+    const target = await createTestUser('MEMBER');
     expect((await updateUserAction({ id: target.id, name: target.name, role: 'VIEWER' })).ok).toBe(
       true,
     );
     const after = await db.user.findUniqueOrThrow({ where: { id: target.id } });
     expect(after).toMatchObject({ role: 'VIEWER', isActive: false });
     expect(await db.session.count({ where: { userId: target.id, revokedAt: null } })).toBe(0);
+
+    takeSentEmails();
+    expect(await sendSignInLinkAction({ id: target.id })).toMatchObject({ ok: false });
+    expect(takeSentEmails()).toEqual([]);
   });
 
   it('will not let an admin demote or deactivate themselves', async () => {

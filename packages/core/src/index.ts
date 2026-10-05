@@ -12,4 +12,5 @@ export * from './money';
 export * from './csv';
 export * from './pipeline';
 export * from './partner-import';
+export * from './emails';
 export { clock, setClock, resetClock, fixedClock, type Clock } from './clock';
