@@ -165,7 +165,7 @@ export function DialogTrigger({
   trigger,
   children,
   ...dialog
-}: Omit<DialogProps, 'open' | 'onClose'> & {
+}: Omit<DialogProps, 'open' | 'onClose' | 'children'> & {
   trigger: (open: () => void) => React.ReactNode;
   children?: React.ReactNode | ((close: () => void) => React.ReactNode);
 }) {
