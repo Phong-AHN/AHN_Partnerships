@@ -65,7 +65,8 @@ afterwards; they never touch the seeded data.
      `?sslmode=require&pgbouncer=true`).
    - `DIRECT_URL`: the direct, non-pooled one. Migrations use it.
 3. **Vercel project.** Import the Git repository, then:
-   - Root Directory: `apps/web` (framework: Next.js; region `sin1` and the
+   - Root Directory: `apps/web` (framework: Next.js; region `hnd1` - Tokyo, next to the
+     database in `ap-northeast-1` - and the
      build command come from `apps/web/vercel.json`).
    - Environment variables (Production):
 

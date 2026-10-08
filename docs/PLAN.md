@@ -46,7 +46,7 @@ Mỗi đối tác là một **deal trong pipeline**, đúng như anh Bryan yêu 
 | 5   | Ai dùng app, ai là admin                                                          | Bryan và Phong là ADMIN, team là MEMBER                                 |
 | 6   | Deal referral/strategic có cần ghi giá trị ước tính không?                        | Có, nhập tay, không bắt buộc                                            |
 | 7   | Mục tiêu doanh thu năm 2027                                                       | Trường cấu hình `annualTargetMinor`, hiện trên dashboard                |
-| 8   | Domain và host                                                                    | Vercel (region `sin1` như Mercator) + một Postgres riêng (Neon/Railway) |
+| 8   | Domain và host                                                                    | Vercel (region `hnd1`, cạnh database ở ap-northeast-1) + Postgres riêng |
 
 **Database phải tách riêng khỏi Mercator.** Không dùng chung database hay biến môi trường.
 
@@ -409,7 +409,7 @@ Các ô số liệu, funnel, phân bố, danh sách "Cần làm tuần này" và
 
 ### Giai đoạn 8: Deploy (½ ngày)
 
-1. Tạo Postgres production và project Vercel mới (Root Directory `apps/web`, region `sin1`). Đặt env.
+1. Tạo Postgres production và project Vercel mới (Root Directory `apps/web`, region `hnd1` - Tokyo, cùng vùng với database ở `ap-northeast-1`). Đặt env.
 2. **Chạy `pnpm db:migrate:deploy` lên production TRƯỚC khi deploy code có migration mới.** Đây chính là lỗi đã làm sập trang project của Mercator. Cân nhắc đưa bước này vào build command.
 3. Chạy seed một lần với dữ liệu thật, tạo tài khoản cho team.
 4. Thêm `docs/RUNBOOK.md` gồm: chạy local, migrate, deploy, backup.
