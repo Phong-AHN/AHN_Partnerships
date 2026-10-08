@@ -17,7 +17,8 @@ export const logger: Logger = pino({
   base: {
     service: process.env.PARTNERS_SERVICE ?? 'web',
     role: process.env.PARTNERS_ROLE ?? 'web',
-    env: process.env.APP_ENV ?? 'development',
+    // Vercel sets VERCEL_ENV (production / preview); elsewhere NODE_ENV is the truth.
+    env: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? 'development',
   },
   redact: { paths: REDACT_PATHS, censor: '[redacted]' },
   mixin() {
