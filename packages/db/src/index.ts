@@ -6,6 +6,11 @@ import { PrismaClient, Prisma, type $Enums } from '@prisma/client';
 // at the root, so every process that touches the database reads it from the
 // same place.
 loadRootEnv();
+// Migrations want a direct (non-pooled) connection; when the host gives only
+// one URL, it serves as both. Same default as prisma.config.ts.
+if (!process.env.DIRECT_URL && process.env.DATABASE_URL) {
+  process.env.DIRECT_URL = process.env.DATABASE_URL;
+}
 
 export * from '@prisma/client';
 export { Prisma };

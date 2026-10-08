@@ -72,7 +72,7 @@ afterwards; they never touch the seeded data.
      | Name             | Value                                                                           |
      | ---------------- | ------------------------------------------------------------------------------- |
      | `DATABASE_URL`   | pooled connection string                                                        |
-     | `DIRECT_URL`     | direct connection string                                                        |
+     | `DIRECT_URL`     | direct connection string - optional, defaults to `DATABASE_URL`                 |
      | `APP_URL`        | the production URL, e.g. `https://partners.ahnmedia.com` - used in invite links |
      | `SESSION_SECRET` | `openssl rand -base64 32`                                                       |
      | `RESEND_API_KEY` | the Resend API key - required in production                                     |
@@ -141,6 +141,8 @@ pg_dump "<direct url>" --format=custom --no-owner --file=partners-$(date +%F).du
 | `Prisma Client could not locate the Query Engine for runtime rhel-openssl-3.0.x` | The engine was not traced into the function. `binaryTargets` in `schema.prisma` and `outputFileTracingIncludes` in `next.config.ts` handle this; do not remove either.                                              |
 | Page errors after a deploy mentioning a missing column or table                  | The migration did not run. Run `pnpm db:migrate:deploy` against production, then redeploy.                                                                                                                          |
 | `Invalid environment configuration` at boot                                      | A required variable is missing - the message lists which.                                                                                                                                                           |
+| Build fails with `Missing environment variables for Production`                  | Add the variables it lists in Vercel → Settings → Environment Variables (Production), then redeploy.                                                                                                                |
+| Build fails with Prisma `Environment variable not found: DIRECT_URL`             | Misleading: it means `DATABASE_URL` is missing for that environment. `DIRECT_URL` itself is optional.                                                                                                               |
 | Someone cannot sign in                                                           | They ask for a new link on the sign-in page (sign-in links last 15 minutes, invitations 7 days). An admin can also press **Send sign-in link** in Settings → Users.                                                 |
 | Sign-in emails never arrive                                                      | Look in the Vercel logs for `resend send failed` - usually `EMAIL_FROM` is not on a verified Resend domain, or the key is wrong. The sign-in page shows the same "check your email" message either way, on purpose. |
 | A link says "already used" though nobody clicked it                              | Opening a link only shows a confirm button, so mail scanners cannot spend it - ask for a new link. If it keeps happening, check whether something is submitting forms on the person's behalf.                       |
